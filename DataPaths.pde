@@ -1,5 +1,5 @@
 // ===== 数据文件夹（与程序分开存放）=====
-// 所有个人数据放在：書類（文稿）/EEG_Boids_Mac_Data/
+// pink 版：数据放在程序文件夹里的 EEG_Boids_Mac_Data_pink/（与原来的系统完全分开，互不影响）
 //   sessions/   每次会话的 CSV + 同名 JSON（鱼群起始状态、作品参数、日记）
 //   artworks/   每次会话唯一的作品（3840×2400 PNG），生成一次后只读取、永不重新计算
 //   cache/      缩略图（由作品缩小得到，随时可删，删除后自动重新缩小）
@@ -12,7 +12,7 @@ String DATA_ROOT_OVERRIDE = null;   // 测试用
 
 File dataRoot() {
   if (DATA_ROOT_OVERRIDE != null) return new File(DATA_ROOT_OVERRIDE);
-  return new File(System.getProperty("user.home"), "Documents/EEG_Boids_Mac_Data");
+  return new File(sketchPath(""), "EEG_Boids_Mac_Data_pink");
 }
 File sessionsDir() { return new File(dataRoot(), "sessions"); }
 File artworksDir() { return new File(dataRoot(), "artworks"); }

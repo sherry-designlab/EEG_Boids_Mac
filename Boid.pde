@@ -1,5 +1,16 @@
 // ===== Boid类 =====
 final int BOID_TRAIL_MAX = 10;
+
+// 鱼的配色（实时画面・回放・光绘共用）
+final float BOID_WARM_R = 255, BOID_WARM_G = 102, BOID_WARM_B = 204;   // 粉色（愉悦度高）
+final float BOID_COLD_R = 102, BOID_COLD_G = 204, BOID_COLD_B = 255;   // 天蓝（愉悦度低）
+final float BOID_SIZE_MIN = 4.0f;   // 愉悦度 -1 时的粗细（旧 demo 为 2，太细）
+final float BOID_SIZE_MAX = 9.0f;   // 愉悦度 +1 时的粗细
+
+// 同一时刻所有鱼相同的粗细：愉悦度越低越细
+float boidSize(float v) {
+  return map(constrain(v, -1, 1), -1, 1, BOID_SIZE_MIN, BOID_SIZE_MAX);
+}
 class Boid {
   PVector position, velocity, acceleration;
   int id = 0;   // 模拟内的个体编号
@@ -93,20 +104,22 @@ class Boid {
   }
 
   // 与 show() 相同的外观，但画到指定图层上（全屏实时模式使用）
+  // 画法（来自 SystemModified260601 的 demo）：
+  //   颜色：愉悦度低 → 天蓝，高 → 粉色；游得越快越接近白色（最多 80%）→ 快的鱼有发白的亮芯
+  //   粗细：同一时刻所有鱼相同，随愉悦度变化（心情变差 → 变细；最细 BOID_SIZE_MIN）
+  //   透明度固定 200
   void showOn(PGraphics pg, float v, float a) {
-    float speedFactor = velocity.mag() / maxSpeed;
-
-    color cold = color(150, 180, 255);
-    color warm = color(255, 160, 60);
-    color base = lerpColor(cold, warm, (v + 1) * 0.5f);
-
-    float alphaNow = map(a, -1, 1, 120, 220);
-
-    float r = map(speedFactor, 0, 1, 3, 8);
-
     pg.noStroke();
-    pg.fill(base, alphaNow);
-    pg.ellipse(position.x, position.y, r, r);
+    pg.fill(boidColor(v), 200);
+    float s = boidSize(v);
+    pg.ellipse(position.x, position.y, s, s);
+  }
+
+  int boidColor(float v) {
+    float t = constrain((v + 1) * 0.5f, 0, 1);
+    int base = color(lerp(BOID_COLD_R, BOID_WARM_R, t), lerp(BOID_COLD_G, BOID_WARM_G, t), lerp(BOID_COLD_B, BOID_WARM_B, t));
+    float speedRatio = constrain(velocity.mag() / max(maxSpeed, 1e-6f), 0, 1);
+    return lerpColor(base, color(255), speedRatio * 0.8f);
   }
 
   void edges() {

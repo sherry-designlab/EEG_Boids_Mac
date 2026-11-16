@@ -79,7 +79,7 @@ void settings() {
 
 void setup() {
   surface.setResizable(true);
-  surface.setTitle("EEG Boids");
+  surface.setTitle("EEG Boids（pink）");
   initDataDirs();   // 数据文件夹（DataPaths.pde）：第一次启动时自动搬移旧数据
   
 textFont(createFont("PingFang SC", 14));      // 中

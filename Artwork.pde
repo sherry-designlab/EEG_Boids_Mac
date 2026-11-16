@@ -9,7 +9,8 @@
 //   1 = 11/14 版（时间压缩 2000 步的模拟）
 //   2 = 11/16 版（用实时鱼群的真实轨迹；线条过强，已放弃）
 //   3 = 11/16 恢复 11/14 版的算法（与 1 相同的画面，4K 存档）
-final int LP_STYLE_VERSION = 3;
+//   4 = pink 版：与实时画面相同的配色（天蓝 ↔ 粉色，越快越白）
+final int LP_STYLE_VERSION = 4;
 
 final int THUMB_W = 960;   // 缩略图宽（= 作品 3840 的 1/4）
 
@@ -83,6 +84,7 @@ boolean ensureArtwork(File csv) {
       r.setString("pop_scale", Float.toString(LP_POP_SCALE));
       r.setInt("step_budget", LP_STEP_BUDGET);
       r.setInt("warmup", LP_WARMUP);
+      r.setString("white_mix", Float.toString(LP_WHITE_MIX));
       r.setInt("world_w", (int)LP_WORLD_W);
       r.setInt("world_h", (int)LP_WORLD_H);
       r.setInt("width", LP_EXPORT_W);
@@ -171,7 +173,7 @@ boolean deleteSession(File csv) {
 // ===== 光绘的自检（只在控制台输出，不显示给用户）=====
 // 用一段固定的测试数据画一张小图，与记录的结果比较。
 // 没有改变风格编号却出现差异 → 某处修改无意中影响了光绘。
-final String LP_SELFTEST_EXPECTED = "aeb4525685e44a3";   // 风格 3（= 11/14 版算法）的结果
+final String LP_SELFTEST_EXPECTED = "d61b6578f4f1fb6b";   // 风格 4（pink 版）的结果
 
 void runLightPaintingSelfTest() {
   Thread t = new Thread(() -> {

@@ -13,6 +13,7 @@ float LP_WORLD_H = 1000;
 
 int   LP_IMG_W       = 960;    // 缩略图的宽（高按虚拟画布比例 = 600）
 int   LP_EXPORT_W    = 3840;   // 作品的宽（高 = 2400）
+float LP_WHITE_MIX   = 0.4f;   // 光绘中"越快越白"的程度（实时画面为 0.8；光绘是累积的，0.8 会把颜色冲淡成白色）
 float LP_POP_SCALE   = 0.2f;   // 模拟用 Boids 数量 = 实时数量(popMin~popMax) × 该比例（画廊与回放共用）
 int   LP_STEP_BUDGET = 2000;   // 整个会话的模拟总步数上限（长会话会被压缩）
 int   LP_WARMUP      = 60;     // 预热步数（不曝光，避免初始随机散点）
@@ -121,12 +122,11 @@ void lpSimStep(ArrayList<Boid> boids, PVector target, PVector center, float a, f
     }
   }
 
-  // 颜色与亮度：与 Boid.show() 相同的冷暖映射
+  // 颜色与亮度：与实时画面（Boid.showOn）相同的配色
+  //   愉悦度低 → 天蓝 (102,204,255)，高 → 粉色 (255,102,204)；游得越快越接近白色（每条鱼各自计算）
   float t = constrain((v + 1) * 0.5f, 0, 1);
   float intensity = map(a, -1, 1, 120, 220) / 255.0f;
-  float cr = lerp(150, 255, t) / 255.0f * intensity;
-  float cg = lerp(180, 160, t) / 255.0f * intensity;
-  float cb = lerp(255, 60, t)  / 255.0f * intensity;
+  float br = lerp(BOID_COLD_R, BOID_WARM_R, t), bg = lerp(BOID_COLD_G, BOID_WARM_G, t), bb = lerp(BOID_COLD_B, BOID_WARM_B, t);
 
   float sx = W / LP_WORLD_W;
   float sy = H / LP_WORLD_H;
@@ -148,6 +148,11 @@ void lpSimStep(ArrayList<Boid> boids, PVector target, PVector center, float a, f
     b.update();
 
     if (!expose) continue;
+
+    float sr = constrain(b.velocity.mag() / max(b.maxSpeed, 1e-6f), 0, 1) * LP_WHITE_MIX;
+    float cr = lerp(br, 255, sr) / 255.0f * intensity;
+    float cg = lerp(bg, 255, sr) / 255.0f * intensity;
+    float cb = lerp(bb, 255, sr) / 255.0f * intensity;
 
     // 把这一步的位移线段"曝光"到画布（全屏取景）
     float x0 = px * sx, y0 = py * sy;

@@ -171,9 +171,6 @@ void drawReplay() {
   }
   if (replayPhase <= 1 && replayCursor != null) {
     float sc = lw / LP_WORLD_W;
-    int cold = color(150, 180, 255), warm = color(255, 160, 60);
-    int base = lerpColor(cold, warm, constrain((replayCurV + 1) * 0.5f, 0, 1));
-    float alphaNow = map(replayCurA, -1, 1, 120, 220);
     replayLayer.beginDraw();
     replayLayer.noStroke();
     replayLayer.fill(0, 0, 0, 22);
@@ -181,11 +178,11 @@ void drawReplay() {
     // 倍速时一帧走很多步：沿这一帧经过的位置画成连续的身体（不会变成断开的点）
     replayLayer.strokeCap(ROUND);
     replayLayer.noFill();
+    float r = boidSize(replayCurV) * max(sc, 0.5f);   // 与实时画面相同的画法（Boid.pde）
     for (Boid bd : replayCursor.sim.boids) {
-      float sf = bd.velocity.mag() / max(bd.maxSpeed, 1e-6f);
-      float r = map(sf, 0, 1, 3, 8) * max(sc, 0.5f);
+      int col = bd.boidColor(replayCurV);
       if (bd.trN >= 2) {
-        replayLayer.stroke(base, alphaNow);
+        replayLayer.stroke(col, 200);
         replayLayer.strokeWeight(r);
         for (int k = 1; k < bd.trN; k++) {
           float dx = bd.trX[k] - bd.trX[k - 1], dy = bd.trY[k] - bd.trY[k - 1];
@@ -194,7 +191,7 @@ void drawReplay() {
         }
       } else {
         replayLayer.noStroke();
-        replayLayer.fill(base, alphaNow);
+        replayLayer.fill(col, 200);
         replayLayer.ellipse(bd.position.x * sc, bd.position.y * sc, r, r);
         replayLayer.noFill();
       }
