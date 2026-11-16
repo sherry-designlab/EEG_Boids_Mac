@@ -11,7 +11,7 @@ AffectiveSwarm 更新说明（本文件夹的当前版本）
 
 1. 没有时刻列的 CSV 也能导入
    - 以前只认 TimeStamp / time_ms 列，没有就提示「時刻の列（TimeStamp）が見つかりません」并停止
-   - 现在可识别的时刻列：TimeStamp・timestamps（Unix 秒）・time・time_s・datetime・time_ms 等
+   - 现在可识别的时刻列：TimeStamp・timestamps（Unix 秒）・t_ms（旧 demo 系统，Unix 毫秒）・time・time_s・datetime・time_ms 等
    - 完全没有时刻列时：弹出窗口询问每行的记录间隔（1 秒 / 0.5 秒 / 0.2 秒 / 0.1 秒 / 256 Hz），按等间隔处理；
      同一批文件只问一次。开始时刻取文件名中的日期，没有则取文件的修改时间
    - 这种文件开始时刻可能相同：已存在同名文件时自动加编号（例：…_2_mm.csv）

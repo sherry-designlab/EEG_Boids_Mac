@@ -1,7 +1,7 @@
 // ===== 外部 CSV 导入（Data Management → 外部からインポート）=====
 // 读取 Mind Monitor 录制的 CSV（也接受本系统的新格式 CSV），按以下步骤处理后保存到 sketch 文件夹：
 //   1. 按列名找到 5 频段 × 4 电极（Delta_TP9 … Gamma_TP10，大小写不限）、时刻列、HSI_*、HeadBandOn、Elements
-//      时刻列可选：TimeStamp（日期时间）/ timestamps（Unix 秒）/ time / time_ms 等；
+//      时刻列可选：TimeStamp（日期时间）/ timestamps（Unix 秒）/ t_ms（旧 demo 系统，Unix 毫秒）/ time / time_ms 等；
 //      没有时刻列时，询问"每行的间隔"（例：1 秒、0.1 秒），按等间隔处理
 //   2. 逐行噪声判定（NoiseFilter.pde 的 checkNoise：NaN / 范围外 / 接触不良）＋ 未佩戴（HeadBandOn=0）＋ 咬牙前后 1.5 秒
 //   3. 按 1 秒分箱取平均（与实时录制的 1Hz 对齐），并做冻结值判定
@@ -188,7 +188,8 @@ void runImport(File src) throws Exception {
   // 时刻列（可选）
   Integer tsCol = null;
   boolean tsIsMs = false;
-  for (String nm : new String[] { "timestamp", "timestamps", "time", "time_s", "datetime", "date_time" }) {
+  // t_ms：旧 demo 系统的记录（Unix 毫秒）
+  for (String nm : new String[] { "timestamp", "timestamps", "t_ms", "unix_ms", "time", "time_s", "datetime", "date_time" }) {
     if (tsCol == null && idx.get(nm) != null) tsCol = idx.get(nm);
   }
   if (tsCol == null) {
