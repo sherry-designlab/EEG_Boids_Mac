@@ -1,0 +1,16 @@
+# 個人データ（脳波）は含めない
+*.csv
+calibration.json
+swarm_state.json
+tags.json
+gallery_cache/
+exports/
+artworks/
+cache/
+sessions/
+# 旧バックアップ（Git の履歴で代替）
+_backup_*/
+# macOS / Processing
+.DS_Store
+application.*/
+*.app
