@@ -11,7 +11,7 @@ String[] DEFAULT_TAGS = { "睡眠不足", "疲れ", "カフェイン", "運動�
 
 // 编辑完成后由主线程处理（刷新画廊的显示）
 volatile String diarySavedName = null;
-boolean diaryEditorOpen = false;
+volatile javax.swing.JDialog diaryDialog = null;   // 正在打开的メモ窗口（再次点击时把它提到最前面）
 
 // ---- 标签列表 ----
 class TagInfo {
@@ -67,11 +67,22 @@ String[] diaryTagsOf(JSONObject meta) {
 
 // ---- 编辑窗口（Swing）----
 void openDiaryEditor(File csv, String title) {
-  if (diaryEditorOpen || csv == null || !csv.exists()) return;
-  diaryEditorOpen = true;
+  if (csv == null || !csv.exists()) return;
   final File f = csv;
   final String ttl = title;
-  javax.swing.SwingUtilities.invokeLater(() -> buildDiaryDialog(f, ttl));
+  javax.swing.SwingUtilities.invokeLater(() -> {
+    // 已经打开着：关掉旧的，打开这一次的（以前这里直接忽略，窗口被红色按钮关掉后就再也打不开）
+    if (diaryDialog != null) {
+      diaryDialog.dispose();
+      diaryDialog = null;
+    }
+    try {
+      buildDiaryDialog(f, ttl);
+    } catch (Exception ex) {
+      ex.printStackTrace();
+      showToast("メモを開けませんでした：" + ex.getMessage());
+    }
+  });
 }
 
 void buildDiaryDialog(final File csv, String title) {
@@ -85,6 +96,7 @@ void buildDiaryDialog(final File csv, String title) {
 
   final javax.swing.JDialog dlg = new javax.swing.JDialog((java.awt.Frame)null, "メモ", false);
   dlg.setAlwaysOnTop(true);
+  dlg.setDefaultCloseOperation(javax.swing.WindowConstants.DISPOSE_ON_CLOSE);
   javax.swing.JPanel root = new javax.swing.JPanel();
   root.setLayout(new javax.swing.BoxLayout(root, javax.swing.BoxLayout.Y_AXIS));
   root.setBorder(javax.swing.BorderFactory.createEmptyBorder(14, 16, 14, 16));
@@ -268,13 +280,16 @@ void buildDiaryDialog(final File csv, String title) {
     dlg.dispose();
   });
   dlg.addWindowListener(new java.awt.event.WindowAdapter() {
-    public void windowClosed(java.awt.event.WindowEvent e) { diaryEditorOpen = false; }
+    public void windowClosed(java.awt.event.WindowEvent e) { if (diaryDialog == dlg) diaryDialog = null; }
   });
 
   dlg.setContentPane(root);
   dlg.pack();
   dlg.setLocationRelativeTo(null);
+  diaryDialog = dlg;
   dlg.setVisible(true);
+  dlg.toFront();
+  area.requestFocusInWindow();
 }
 
 // 标签面板：按窗口宽度自动换行，高度随标签数量增加（放在可滚动区域里）
@@ -327,6 +342,77 @@ void addMarker() {
   m.setString("label", "");
   recMarkers.append(m);
   markerFlashMs = millis();
+  openMarkerNote(m);
+}
+
+// ===== 标记的简短备注（M 键之后弹出；最多 MARKER_NOTE_MAX 字）=====
+// 标记的时刻在按下 M 的瞬间就已经记下；这个小窗口只是补上文字。
+// Enter = 保存，Esc 或关闭 = 不写（标记本身保留，结束后也可以在メモ窗口中补写）。
+// 冥想（录制）在窗口打开期间照常继续。
+final int MARKER_NOTE_MAX = 20;
+volatile javax.swing.JDialog markerDialog = null;
+
+void openMarkerNote(final JSONObject marker) {
+  final String timeLabel = formatDuration(marker.getLong("ms", 0));
+  final File csvAtMark = sessionFile(currentSessionFile);
+  final int stepAtMark = marker.getInt("step", 0);
+  javax.swing.SwingUtilities.invokeLater(() -> {
+    if (markerDialog != null) markerDialog.dispose();
+    java.awt.Font font = new java.awt.Font("Hiragino Sans", java.awt.Font.PLAIN, 15);
+    final javax.swing.JDialog d = new javax.swing.JDialog((java.awt.Frame)null, "マーク " + timeLabel, false);
+    d.setAlwaysOnTop(true);
+    d.setDefaultCloseOperation(javax.swing.WindowConstants.DISPOSE_ON_CLOSE);
+    javax.swing.JPanel p = new javax.swing.JPanel(new java.awt.BorderLayout(0, 6));
+    p.setBorder(javax.swing.BorderFactory.createEmptyBorder(12, 14, 12, 14));
+    javax.swing.JLabel lb = new javax.swing.JLabel("一言メモ（" + MARKER_NOTE_MAX + " 字まで・Enter で保存、Esc で閉じる）");
+    lb.setFont(font.deriveFont(12f));
+    final javax.swing.JTextField tf = new javax.swing.JTextField(18);
+    tf.setFont(font);
+    ((javax.swing.text.AbstractDocument)tf.getDocument()).setDocumentFilter(new javax.swing.text.DocumentFilter() {
+      public void insertString(FilterBypass fb, int off, String s, javax.swing.text.AttributeSet a) throws javax.swing.text.BadLocationException {
+        replace(fb, off, 0, s, a);
+      }
+      public void replace(FilterBypass fb, int off, int len, String s, javax.swing.text.AttributeSet a) throws javax.swing.text.BadLocationException {
+        if (s == null) s = "";
+        s = s.replace("\n", " ");
+        int room = MARKER_NOTE_MAX - (fb.getDocument().getLength() - len);
+        if (room <= 0) return;
+        if (s.length() > room) s = s.substring(0, room);
+        super.replace(fb, off, len, s, a);
+      }
+    });
+    tf.addActionListener(e -> {
+      final String t = tf.getText().trim();
+      synchronized (marker) { marker.setString("label", t); }
+      // 输入前冥想已经结束（会话 JSON 已保存）：直接写进 JSON
+      JSONObject meta = sessionMetaLoad(csvAtMark);
+      if (meta != null && meta.hasKey("markers")) {
+        sessionMetaUpdate(csvAtMark, o -> {
+          JSONArray mk = o.getJSONArray("markers");
+          for (int i = 0; i < mk.size(); i++) {
+            if (mk.getJSONObject(i).getInt("step", -1) == stepAtMark) mk.getJSONObject(i).setString("label", t);
+          }
+        });
+      }
+      d.dispose();
+    });
+    tf.getInputMap().put(javax.swing.KeyStroke.getKeyStroke("ESCAPE"), "close");
+    tf.getActionMap().put("close", new javax.swing.AbstractAction() {
+      public void actionPerformed(java.awt.event.ActionEvent e) { d.dispose(); }
+    });
+    d.addWindowListener(new java.awt.event.WindowAdapter() {
+      public void windowClosed(java.awt.event.WindowEvent e) { if (markerDialog == d) markerDialog = null; }
+    });
+    p.add(lb, java.awt.BorderLayout.NORTH);
+    p.add(tf, java.awt.BorderLayout.CENTER);
+    d.setContentPane(p);
+    d.pack();
+    d.setLocationRelativeTo(null);
+    markerDialog = d;
+    d.setVisible(true);
+    d.toFront();
+    tf.requestFocusInWindow();
+  });
 }
 
 // 标记时的轻微反馈：录制按钮周围闪一下（不打扰冥想）

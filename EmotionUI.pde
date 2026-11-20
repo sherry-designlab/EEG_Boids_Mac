@@ -42,7 +42,7 @@ void drawHelpInfo() {
   if (normalization.isCalibrated) {
     // 已校准状态
     text("Space キー / 右下のボタン：瞑想の開始・終了", 20, height - 80);
-    text("M キー：瞑想中にマーク（名前は終了後のメモで）", 20, height - 60);
+    text("M キー：瞑想中にマーク＋一言メモ（20 字まで）", 20, height - 60);
     text("R キーを押す：再キャリブレーション", 20, height - 40);
     text("X キーを押す：プログラムを終了する", 20, height - 20);
   } else {

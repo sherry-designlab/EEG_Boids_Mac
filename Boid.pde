@@ -1,11 +1,17 @@
 // ===== Boid类 =====
-final int BOID_TRAIL_MAX = 10;
+final int REPLAY_TAIL = 24;   // 回放时每条鱼画出的拖尾长度（步）
 class Boid {
   PVector position, velocity, acceleration;
   int id = 0;   // 模拟内的个体编号
-  // 回放时一帧内经过的位置（Replay.pde 用来画连续的身体）
-  float[] trX = new float[BOID_TRAIL_MAX], trY = new float[BOID_TRAIL_MAX];
-  int trN = 0;
+  // 回放用：最近 REPLAY_TAIL 步的位置（Replay.pde 按实时画面的拖尾方式画出身体）
+  float[] tlX = new float[REPLAY_TAIL], tlY = new float[REPLAY_TAIL];
+  int tlHead = 0, tlN = 0;
+  void pushTail() {
+    tlHead = (tlHead + 1) % REPLAY_TAIL;
+    tlX[tlHead] = position.x;
+    tlY[tlHead] = position.y;
+    if (tlN < REPLAY_TAIL) tlN++;
+  }
 
   float maxSpeed = 4;
   float maxForce = 0.2;
@@ -186,3 +192,6 @@ class Boid {
     return steering;
   }
 }
+
+// 回放时的身体大小系数（原系统：1）
+float replayBodyScale(Boid b, float v) { return 1; }

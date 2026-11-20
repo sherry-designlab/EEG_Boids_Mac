@@ -53,6 +53,14 @@ void mousePressed() {
   }
 }
 
+void mouseDragged() {
+  replayHandleDrag();
+}
+
+void mouseReleased() {
+  replayHandleRelease();
+}
+
 void mouseMoved() {
   menuMouseSeen = true;
 }

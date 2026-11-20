@@ -324,6 +324,8 @@ SimTimeline simLoadTimeline(File csv) {
   }
   JSONObject meta = sessionMetaLoad(csv);
   JSONObject start = (meta != null && meta.hasKey("swarm_start")) ? meta.getJSONObject("swarm_start") : null;
+  // 其他程序（例：JellyEmotion）写入的 swarm_start 不是 Boids 的鱼群（没有 boids）→ 当作没有起始状态
+  if (start != null && !start.hasKey("boids")) start = null;
   boolean hasStart = start != null && colStep >= 0;
 
   ArrayList<float[]> rows = new ArrayList<float[]>();

@@ -9,7 +9,7 @@ int lastSwarmSaveMs = 0;
 
 void initLiveSim() {
   liveSim = null;
-  File f = dataRootFile("swarm_state.json");
+  File f = dataRootFile(SWARM_STATE_FILE);
   if (f.exists()) {
     try {
       SwarmSim s = new SwarmSim(System.currentTimeMillis());
@@ -74,7 +74,7 @@ void stepLiveSim() {
 void saveSwarmState() {
   if (liveSim == null) return;
   try {
-    saveJSONObject(liveSim.toJSON(), dataRootFile("swarm_state.json").getAbsolutePath());
+    saveJSONObject(liveSim.toJSON(), dataRootFile(SWARM_STATE_FILE).getAbsolutePath());
   } catch (Exception e) {
     println("swarm_state.json を保存できませんでした: " + e.getMessage());
   }

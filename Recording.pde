@@ -159,7 +159,7 @@ void drawRecordButton() {
     text("● REC  " + recordingElapsedText(), recBtnX, ly);
     fill(170);
     textSize(11);
-    text("瞑想を終える（Space）・ M キーでマーク", recBtnX, ly + 18);
+    text("瞑想を終える（Space）・ M キーでマーク＋一言メモ", recBtnX, ly + 18);
     // 噪声去除的统计（NoiseFilter.pde）
     fill(130);
     textAlign(RIGHT, CENTER);

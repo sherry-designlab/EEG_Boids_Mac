@@ -18,6 +18,7 @@ File sessionsDir() { return new File(dataRoot(), "sessions"); }
 File artworksDir() { return new File(dataRoot(), "artworks"); }
 File cacheDir()    { return new File(dataRoot(), "cache"); }
 File dataRootFile(String name) { return new File(dataRoot(), name); }
+final String SWARM_STATE_FILE = "swarm_state.json";   // 进化版使用 swarm_state_evo.json
 File sessionFile(String csvName) { return new File(sessionsDir(), csvName); }
 
 void initDataDirs() {

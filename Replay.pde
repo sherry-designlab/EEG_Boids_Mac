@@ -5,6 +5,8 @@
 // 回放结束后，淡入这次会话的作品（artworks/ 中的存档；光绘由 LightPainting.pde 独立生成，11/14 版的风格）。
 // 使用场景：结束瞑想时（Recording.pde）、画廊、导入 CSV 后与文件列表中（DataManager.pde）。
 // 关闭：窗口右上角 ×、回放结束后点击窗口、或 ESC。
+// 进度条可以拖动（或点击）跳到任意位置；冥想中做的标记到达时，在画面下方显示它的备注。
+// 画法与实时画面相同：每条鱼画出最近 REPLAY_TAIL 步的位置，越旧越淡（倍速时也是同样的"小蝌蚪"）。
 
 float REPLAY_TARGET_SEC = 20;      // 回放的目标时长（秒）：长会话自动提高倍速
 int   REPLAY_FRAME_BUDGET_MS = 25; // 每帧模拟最多花这么多时间（电脑慢时回放变长，但不卡顿）
@@ -26,6 +28,14 @@ int replayStartMs = 0;
 int replayGen = 0;                  // 回放编号（关闭后，旧的后台读取结果不再使用）
 boolean replayOfferMemo = false;    // 刚结束的冥想：回放结束后显示「今日のメモを書く」
 int[] replayMarkerSteps = new int[0];   // 冥想中的标记（进度条上显示刻度）
+String[] replayMarkerLabels = new String[0];
+String replayCaption = null;            // 正在显示的标记备注
+int replayCaptionMs = 0;
+final int REPLAY_CAPTION_MS = 3500;
+int replaySeekTarget = -1;              // 跳转目标（步）；-1 = 没有跳转
+boolean replayDragging = false;         // 正在拖动进度条
+float replayDragFrac = 0;
+float rBarX, rBarY, rBarW;
 float rMemoX, rMemoY, rMemoW = 160, rMemoH = 26;
 
 // 打开回放；数据不足时返回 false
@@ -51,11 +61,19 @@ boolean openReplay(File csv, String title) {
   replayOfferMemo = false;
   JSONObject meta = sessionMetaLoad(csv);
   replayMarkerSteps = new int[0];
+  replayMarkerLabels = new String[0];
   if (meta != null && meta.hasKey("markers") && tl.startState != null) {
     JSONArray mk = meta.getJSONArray("markers");
     replayMarkerSteps = new int[mk.size()];
-    for (int i = 0; i < mk.size(); i++) replayMarkerSteps[i] = mk.getJSONObject(i).getInt("step", 0);
+    replayMarkerLabels = new String[mk.size()];
+    for (int i = 0; i < mk.size(); i++) {
+      replayMarkerSteps[i] = mk.getJSONObject(i).getInt("step", 0);
+      replayMarkerLabels[i] = mk.getJSONObject(i).getString("label", "");
+    }
   }
+  replayCaption = null;
+  replaySeekTarget = -1;
+  replayDragging = false;
 
   // 作品：后台准备（没有则生成），回放结束时淡入
   final int gen = ++replayGen;
@@ -85,39 +103,56 @@ void closeReplay() {
 // 推进模拟（每帧）：目标步数，或用完时间预算为止
 void updateReplay() {
   int t0 = millis();
-  // 记录这一帧中每条鱼经过的位置（最多 BOID_TRAIL_MAX 个点），用于画连续的身体
-  for (Boid b : replayCursor.sim.boids) {
-    b.trN = 1;
-    b.trX[0] = b.position.x;
-    b.trY[0] = b.position.y;
+  // 跳转中：不画、尽快走到目标步（时间预算内），到达后继续正常回放
+  if (replaySeekTarget >= 0) {
+    while (replayCursor.sim.step < replaySeekTarget && !replayCursor.done() && millis() - t0 < 40) stepReplayOnce(false);
+    if (replayCursor.sim.step >= replaySeekTarget || replayCursor.done()) replaySeekTarget = -1;
+    replayCurA = replayCursor.sim.a;
+    replayCurV = replayCursor.sim.v;
+    return;
   }
-  int every = max(1, ceil(replayStepsPerFrame / (float)(BOID_TRAIL_MAX - 1)));
   for (int k = 0; k < replayStepsPerFrame; k++) {
     if (replayCursor.done()) {
       replayPhase = 1;
       return;
     }
-    replayCursor.stepOnce(null);
-    boolean last = k == replayStepsPerFrame - 1 || millis() - t0 > REPLAY_FRAME_BUDGET_MS;
-    if ((k + 1) % every == 0 || last) {
-      for (Boid b : replayCursor.sim.boids) {
-        if (b.trN < BOID_TRAIL_MAX) {
-          b.trX[b.trN] = b.position.x;
-          b.trY[b.trN] = b.position.y;
-          b.trN++;
-        }
-      }
-    }
+    stepReplayOnce(true);
     if (millis() - t0 > REPLAY_FRAME_BUDGET_MS) break;
   }
   replayCurA = replayCursor.sim.a;
   replayCurV = replayCursor.sim.v;
 }
 
+// 一步：模拟 + 记录拖尾 + 经过标记时显示备注
+void stepReplayOnce(boolean showMarkers) {
+  int before = replayCursor.sim.step;
+  replayCursor.stepOnce(null);
+  for (Boid b : replayCursor.sim.boids) b.pushTail();
+  if (!showMarkers) return;
+  for (int i = 0; i < replayMarkerSteps.length; i++) {
+    if (replayMarkerSteps[i] >= before && replayMarkerSteps[i] < replayCursor.sim.step) {
+      String lb = replayMarkerLabels[i];
+      replayCaption = lb.length() > 0 ? lb : "マーク";
+      replayCaptionMs = millis();
+    }
+  }
+}
+
+// 跳到进度 frac（0〜1）：往前跳 = 从头重新计算（模拟是确定的，结果与正常播放相同）
+void replaySeek(float frac) {
+  if (replayCursor == null) return;
+  SimTimeline tl = replayCursor.tl;
+  int target = constrain(round(frac * tl.totalSteps), 0, tl.totalSteps);
+  if (target < replayCursor.sim.step) replayCursor = new SimCursor(tl);
+  replaySeekTarget = target;
+  replayCaption = null;
+  replayPhase = 0;   // 结束后拖回去也可以重新播放
+}
+
 void drawReplay() {
   if (!replayActive) return;
   if (replayPhase == 0) updateReplay();
-  if (replayPhase >= 1 && replayPhase < 2 && replayFinal != null) {
+  if (replayPhase == 1 && replayFinal != null) {
     replayPhase = 2;
     replayFadeStart = millis();
   }
@@ -169,37 +204,28 @@ void drawReplay() {
     replayLayer.background(0);
     replayLayer.endDraw();
   }
-  if (replayPhase <= 1 && replayCursor != null) {
+  if (replayPhase <= 1 && replayCursor != null && replaySeekTarget < 0) {
     float sc = lw / LP_WORLD_W;
+    // 与实时画面相同的颜色・透明度・大小（Boid.showOn）；拖尾：k 步前的位置透明度 × 0.92^k
+    //（= 实时画面每帧淡出 20/255、每帧一步时的拖尾）
     int cold = color(150, 180, 255), warm = color(255, 160, 60);
     int base = lerpColor(cold, warm, constrain((replayCurV + 1) * 0.5f, 0, 1));
     float alphaNow = map(replayCurA, -1, 1, 120, 220);
     replayLayer.beginDraw();
+    replayLayer.background(0);
     replayLayer.noStroke();
-    replayLayer.fill(0, 0, 0, 22);
-    replayLayer.rect(0, 0, lw, lh);
-    // 倍速时一帧走很多步：沿这一帧经过的位置画成连续的身体（不会变成断开的点）
-    replayLayer.strokeCap(ROUND);
-    replayLayer.noFill();
     for (Boid bd : replayCursor.sim.boids) {
       float sf = bd.velocity.mag() / max(bd.maxSpeed, 1e-6f);
-      float r = map(sf, 0, 1, 3, 8) * max(sc, 0.5f);
-      if (bd.trN >= 2) {
-        replayLayer.stroke(base, alphaNow);
-        replayLayer.strokeWeight(r);
-        for (int k = 1; k < bd.trN; k++) {
-          float dx = bd.trX[k] - bd.trX[k - 1], dy = bd.trY[k] - bd.trY[k - 1];
-          if (dx * dx + dy * dy > 80 * 80) continue;   // 穿越边缘的跳变不画
-          replayLayer.line(bd.trX[k - 1] * sc, bd.trY[k - 1] * sc, bd.trX[k] * sc, bd.trY[k] * sc);
-        }
-      } else {
-        replayLayer.noStroke();
-        replayLayer.fill(base, alphaNow);
-        replayLayer.ellipse(bd.position.x * sc, bd.position.y * sc, r, r);
-        replayLayer.noFill();
+      float r = map(sf, 0, 1, 3, 8) * replayBodyScale(bd, replayCurV) * max(sc, 0.5f);
+      float al = alphaNow;
+      int idx = bd.tlHead;
+      for (int k = 0; k < bd.tlN; k++) {
+        replayLayer.fill(base, al);
+        replayLayer.ellipse(bd.tlX[idx] * sc, bd.tlY[idx] * sc, r, r);
+        al *= 0.9216f;
+        idx = (idx - 1 + REPLAY_TAIL) % REPLAY_TAIL;
       }
     }
-    replayLayer.noStroke();
     replayLayer.endDraw();
   }
   image(replayLayer, rWinX, rWinY);
@@ -214,21 +240,67 @@ void drawReplay() {
     noTint();
   }
 
-  // 进度条与信息
-  SimTimeline tl = replayCursor != null ? replayCursor.tl : null;
-  float prog = (replayPhase == 0 && replayCursor != null) ? replayCursor.progress() : 1;
-  float by = rWinY + rWinH + 18;
-  fill(45);
-  rect(rWinX + 14, by, rWinW - 28, 4, 2);
-  fill(100, 200, 100);
-  rect(rWinX + 14, by, (rWinW - 28) * prog, 4, 2);
-  // 标记的刻度
-  if (tl != null) {
-    fill(230);
-    for (int ms : replayMarkerSteps) {
-      float mx = rWinX + 14 + (rWinW - 28) * constrain(ms / (float)max(1, tl.totalSteps), 0, 1);
-      rect(mx - 1, by - 4, 2, 12);
+  // 标记的备注（到达标记时在画面下方显示几秒）
+  if (replayCaption != null && replayPhase == 0) {
+    float t = (millis() - replayCaptionMs) / (float)REPLAY_CAPTION_MS;
+    if (t >= 1) replayCaption = null;
+    else {
+      float al = t < 0.1f ? t / 0.1f : (t > 0.8f ? (1 - t) / 0.2f : 1);
+      textSize(15);
+      float tw = textWidth(replayCaption) + 40;
+      float cx = rWinX + rWinW / 2, cy = rWinY + rWinH - 40;
+      noStroke();
+      fill(0, 170 * al);
+      rect(cx - tw / 2, cy - 18, tw, 36, 18);
+      fill(255, 255 * al);
+      ellipse(cx - tw / 2 + 16, cy, 6, 6);
+      textAlign(CENTER, CENTER);
+      text(replayCaption, cx + 6, cy);
     }
+  }
+
+  // 进度条与信息（可以拖动）
+  SimTimeline tl = replayCursor != null ? replayCursor.tl : null;
+  float prog;
+  if (replayDragging) prog = replayDragFrac;
+  else if (replaySeekTarget >= 0 && tl != null) prog = replaySeekTarget / (float)max(1, tl.totalSteps);
+  else prog = (replayPhase == 0 && replayCursor != null) ? replayCursor.progress() : 1;
+  float by = rWinY + rWinH + 18;
+  rBarX = rWinX + 14;
+  rBarY = by;
+  rBarW = rWinW - 28;
+  boolean overBar = mouseX >= rBarX - 6 && mouseX <= rBarX + rBarW + 6 && abs(mouseY - (by + 2)) < 10;
+  fill(45);
+  rect(rBarX, by, rBarW, 4, 2);
+  fill(100, 200, 100);
+  rect(rBarX, by, rBarW * prog, 4, 2);
+  // 标记的刻度（鼠标移上去显示备注）
+  String hoverLabel = null;
+  float hoverX = 0;
+  if (tl != null) {
+    for (int i = 0; i < replayMarkerSteps.length; i++) {
+      float mx = rBarX + rBarW * constrain(replayMarkerSteps[i] / (float)max(1, tl.totalSteps), 0, 1);
+      fill(230);
+      rect(mx - 1, by - 4, 2, 12);
+      if (abs(mouseX - mx) < 5 && abs(mouseY - (by + 2)) < 10) {
+        hoverLabel = replayMarkerLabels[i].length() > 0 ? replayMarkerLabels[i] : "マーク";
+        hoverX = mx;
+      }
+    }
+  }
+  // 拖动用的圆点
+  if (overBar || replayDragging) {
+    fill(235);
+    ellipse(rBarX + rBarW * prog, by + 2, 12, 12);
+  }
+  if (hoverLabel != null && !replayDragging) {
+    textSize(12);
+    float tw = textWidth(hoverLabel) + 16;
+    fill(0, 200);
+    rect(hoverX - tw / 2, by - 30, tw, 22, 6);
+    fill(235);
+    textAlign(CENTER, CENTER);
+    text(hoverLabel, hoverX, by - 19);
   }
 
   textSize(12);
@@ -237,11 +309,10 @@ void drawReplay() {
   if (tl != null) {
     long totalMs = (tl.totalSteps - tl.paintFrom) * 1000L / SIM_HZ;
     long curMs = (long)(prog * totalMs);
-    // 实际倍速 = 已回放的模拟时间 ÷ 经过的真实时间
-    float elapsed = max(0.5f, (millis() - replayStartMs) / 1000.0f);
-    float speed = replayPhase == 0 ? (replayCursor.sim.step / (float)SIM_HZ) / elapsed : 0;
-    text(formatDuration(curMs) + " / " + formatDuration(totalMs) + (replayPhase == 0 ? "    約 ×" + max(1, round(speed)) + " 倍速" : ""),
-         rWinX + 14, by + 22);
+    // 倍速 = 每帧的步数 × 帧率 ÷ 每秒步数
+    float speed = replayStepsPerFrame * frameRate / SIM_HZ;
+    String st = replaySeekTarget >= 0 ? "    移動中…" : (replayPhase == 0 ? "    約 ×" + max(1, round(speed)) + " 倍速" : "");
+    text(formatDuration(curMs) + " / " + formatDuration(totalMs) + st, rWinX + 14, by + 22);
   }
   textAlign(RIGHT, CENTER);
   if (replayPhase == 0) {
@@ -286,8 +357,26 @@ boolean replayHandleClick() {
     openDiaryEditor(f, "今日のメモ");
     return true;
   }
+  // 进度条：按下开始拖动（松开时跳转）
+  if (replayCursor != null && mouseX >= rBarX - 6 && mouseX <= rBarX + rBarW + 6 && abs(mouseY - (rBarY + 2)) < 10) {
+    replayDragging = true;
+    replayDragFrac = constrain((mouseX - rBarX) / max(1, rBarW), 0, 1);
+    return true;
+  }
   // 光绘显示完成后，点击窗口内关闭
   boolean inWin = mouseX >= rWinX && mouseX <= rWinX + rWinW && mouseY >= rWinY && mouseY <= rWinY + rWinH;
   if (replayPhase == 2 && inWin && millis() - replayFadeStart > REPLAY_FADE_MS) closeReplay();
   return true;   // 回放中其他点击一律忽略
+}
+
+// 拖动进度条（MouseInput.pde 的 mouseDragged / mouseReleased 调用）
+void replayHandleDrag() {
+  if (!replayActive || !replayDragging) return;
+  replayDragFrac = constrain((mouseX - rBarX) / max(1, rBarW), 0, 1);
+}
+
+void replayHandleRelease() {
+  if (!replayActive || !replayDragging) return;
+  replayDragging = false;
+  replaySeek(replayDragFrac);
 }
