@@ -1,10 +1,9 @@
-# EEG_Boids_Mac
+# EEG_Boids_Mac（進化版）
 
-PC Version AffectiveSwarm application
+元のシステム（1114_Calendar_Gallery, 11/17 版）に、簡単な遺伝的アルゴリズムを加えた版。詳細は `Evolution.pde` 冒頭と `更新说明.txt`。
+データは `EEG_Boids_Mac_Data_evo/`（このフォルダ内。初回起動時に元のデータをコピー）。E キー：進化パネル。
 
-MUSE 2 の脳波から Arousal / Valence を求め、Boids とライトペインティングで可視化するシステム（Processing 4）。
-
-目的：感情認識／脳波記録／瞑想補助／BCI Interactive Media Artwork Creation
+MUSE 2（Mind Monitor → OSC 8000）の脳波から Arousal / Valence を求め、Boids と光絵（ライトペインティング）で可視化するシステム（Processing 4）。
 
 ## 実行
 1. Processing 4 で `Modified_SplitScreen.pde` を開く（ライブラリ：oscP5）
@@ -16,7 +15,7 @@ MUSE 2 の脳波から Arousal / Valence を求め、Boids とライトペイン
 `~/Documents/EEG_Boids_Mac_Data/`（sessions / artworks / cache / calibration.json / swarm_state.json / tags.json）
 
 ## 主な構成
-- `SwarmSim.pde`：リアルタイム・再生・光絵で共通の Boids シミュレーション（1600×1000 simulation、固定ステップ、シード付き乱数）
+- `SwarmSim.pde`：リアルタイム・再生・光絵で共通の Boids シミュレーション（仮想世界 1600×1000、固定ステップ、シード付き乱数）
 - `LightPainting.pde` / `Artwork.pde`：光絵の成像と作品アーカイブ（1 セッション 1 枚、3840×2400）
 - `Gallery.pde` / `Viewer.pde` / `Diary.pde`：ギャラリー、作品ビューア、メモ
 - `Recording.pde` / `SessionIO.pde` / `CsvImport.pde` / `DataManager.pde`：記録、CSV、インポート、データ管理

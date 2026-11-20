@@ -31,6 +31,11 @@ void initLiveSim() {
   liveSim.connected = false;
   liveSim.a = 0;
   liveSim.v = 0;
+  // 进化版：按时间顺序吸收所有会话（含导入的数据）→ 物种构成 → 分配给水族馆里的个体（Evolution.pde）
+  evoHistory = evoBuildHistory();
+  evoApplyToLive(liveSim, evoHistory);
+  liveSim.evolving = false;   // 兴衰只在录制中发生
+  evoExportHistory(evoHistory);
   boidsRight = liveSim.boids;
 }
 

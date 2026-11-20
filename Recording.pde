@@ -28,6 +28,7 @@ void startRecording() {
   // 鱼群：从现在的状态开始，重设随机数种子、步数归零
   recSeed = System.currentTimeMillis();
   liveSim.beginRecording(recSeed);
+  liveSim.evolving = true;   // 进化版：兴衰只在录制中发生
   recSwarmStart = liveSim.toJSON();
   recEvents = new JSONArray();
   recMarkers = new JSONArray();
@@ -43,6 +44,7 @@ void stopRecording() {
 void stopRecording(boolean showReplay) {
   if (!isRecording) return;
   isRecording = false;
+  liveSim.evolving = false;
   if (csvWriter != null) {
     csvWriter.flush();
     csvWriter.close();
@@ -72,6 +74,7 @@ void stopRecording(boolean showReplay) {
     sessionMetaFile(f).delete();
   } else {
     println("■ 記録を保存しました: " + currentSessionFile + "（" + recordedRows + " 行、ノイズ除去 " + noiseRejectedCount + " 秒）");
+    evoSessionEnd(liveSim, f);   // 进化版：这次会话成为新物种
     String saved = currentSessionFile;
     currentSessionFile = "";
     startArtworkInBackground(f);   // 4K 作品在后台生成（回放结束时淡入）

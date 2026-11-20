@@ -22,6 +22,9 @@ class Boid {
   float cohesionRadius = 50f;
   float separateRadius = 30f;
 
+  // 进化版：所属的物种（Evolution.pde）。null = 原系统的个体（光绘、进化版之前的会话回放）
+  Species sp = null;
+
   // 光绘・回放用的专用随机数（为 null 时使用全局随机数 = 实时画面，与以前相同）
   java.util.Random rng = null;
   // 光绘・回放用的虚拟画布尺寸（0 = 使用屏幕尺寸 = 实时画面，与以前相同）
@@ -108,7 +111,7 @@ class Boid {
 
     float alphaNow = map(a, -1, 1, 120, 220);
 
-    float r = map(speedFactor, 0, 1, 3, 8);
+    float r = map(speedFactor, 0, 1, 3, 8) * evoBodyScale(this, v);   // 进化版：物种的大小 × 情绪的粗细
 
     pg.noStroke();
     pg.fill(base, alphaNow);
@@ -193,5 +196,5 @@ class Boid {
   }
 }
 
-// 回放时的身体大小系数（原系统：1）
-float replayBodyScale(Boid b, float v) { return 1; }
+// 回放时的身体大小系数（进化版：物种的大小 × 情绪）
+float replayBodyScale(Boid b, float v) { return evoBodyScale(b, v); }

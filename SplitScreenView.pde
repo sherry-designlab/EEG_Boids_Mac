@@ -93,6 +93,8 @@ void drawScreenLabels() {
   textSize(12);
   text("A: " + nf(arousal, 1, 2) + "  V: " + nf(valence, 1, 2), 70, 65);
   text("Boids: " + boidsRight.size(), 70, 85);
+  drawEvoLabel();   // 进化版（EvolutionUI.pde）
+  drawEvoPanel();
   
   // 底部提示
   fill(150);

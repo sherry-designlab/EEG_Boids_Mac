@@ -8,6 +8,7 @@ exports/
 artworks/
 cache/
 sessions/
+EEG_Boids_Mac_Data_evo/
 # 旧バックアップ（Git の履歴で代替）
 _backup_*/
 # macOS / Processing

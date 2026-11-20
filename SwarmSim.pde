@@ -30,11 +30,16 @@ class SwarmSim {
   float a = 0, v = 0, thetaR = 0;   // 当前输入（正规化 A / V、θ比率）
   boolean connected = true;
   float wake = 1;   // 启动时"慢慢醒来"：0 → 1（约 3 秒），期间最大速度降低
+  // 进化版（Evolution.pde）：evo = true → 物种式的运动规则（stepEvo）；evolving = 录制中（兴衰只在录制中发生）
+  boolean evo = false, evolving = false;
+  java.util.Random grng;   // 兴衰专用的随机数（与历史计算共用同一序列）
+  ArrayList<Species> species = new ArrayList<Species>();
 
   int gw, gh;   // 邻居网格的格数
 
   SwarmSim(long seed) {
     rng = new java.util.Random(seed);
+    grng = new java.util.Random(evoGeneSeed(seed));
     gw = max(1, ceil(W / SIM_CELL));
     gh = max(1, ceil(H / SIM_CELL));
   }
@@ -57,6 +62,10 @@ class SwarmSim {
 
   // ---- 一步 ----
   void step(SimPainter painter) {
+    if (evo) {
+      stepEvo(painter);
+      return;
+    }
     // EEG 断开：A / V 缓慢回到 0（以前在 updateEmotion() 中每帧进行）
     if (!connected) {
       a = lerp(a, 0, 0.02f);
@@ -119,6 +128,159 @@ class SwarmSim {
     step++;
   }
 
+  // ===== 进化版的一步 =====
+  // 情绪 → 整体的速度・力・抖动（全体同时）；物种 → 各自的权重・半径・开放度・栖息点・大小
+  void stepEvo(SimPainter painter) {
+    if (!connected) {
+      a = lerp(a, 0, 0.02f);
+      v = lerp(v, 0, 0.02f);
+    }
+    if (evolving && connected && step % EVO_TICK == 0) evoTick();
+
+    float gMaxSpeed = map(a, -1, 1, 2.4f, 5.6f);
+    if (wake < 1) {
+      gMaxSpeed *= 0.25f + 0.75f * wake;
+      wake = min(1, wake + 1.0f / (3 * SIM_HZ));
+    }
+    float gMaxForce = map(a, -1, 1, 0.11f, 0.30f);
+    float gJitter   = map(a, -1, 1, 0.00f, 0.10f);
+
+    int n = boids.size();
+    ensureBuffers(n);
+    for (int i = 0; i < n; i++) {
+      Boid b = boids.get(i);
+      b.maxSpeed = gMaxSpeed * b.sp.speed;
+      b.maxForce = gMaxForce;
+      b.jitterStrength = gJitter + b.sp.wander;
+      px[i] = b.position.x; py[i] = b.position.y;
+      vx[i] = b.velocity.x; vy[i] = b.velocity.y;
+      kin[i] = b.sp.id;
+    }
+    buildGrid(n);
+    final float fMF = gMaxForce;
+    final int st = step;
+    if (n >= 64) {
+      java.util.stream.IntStream.range(0, n).parallel().forEach(i -> computeForceEvo(i, fMF, st));
+    } else {
+      for (int i = 0; i < n; i++) computeForceEvo(i, fMF, st);
+    }
+    for (int i = 0; i < n; i++) {
+      Boid b = boids.get(i);
+      b.acceleration.set(fx[i], fy[i]);
+      b.update();
+      if (painter != null) painter.segment(b, px[i], py[i], b.position.x, b.position.y, a, v);
+    }
+    step++;
+  }
+
+  // 物种式的受力：自己的 recipe 作用于所有邻居；异种邻居的聚合・对齐按"开放度"减弱
+  void computeForceEvo(int i, float maxForce, int st) {
+    Species s = boids.get(i).sp;
+    float maxSpeed = boids.get(i).maxSpeed;
+    float x = px[i], y = py[i], ux = vx[i], uy = vy[i];
+    float ax = 0, ay = 0;
+    // 向本物种的栖息点（缓慢漂移）
+    float dx = s.anchorX(st, W) - x, dy = s.anchorY(st, H) - y;
+    float d = sqrt(dx * dx + dy * dy);
+    if (d >= 1e-6f) {
+      float sx = dx / d * maxSpeed - ux, sy = dy / d * maxSpeed - uy;
+      float sm = sqrt(sx * sx + sy * sy);
+      if (sm > maxForce) { sx = sx / sm * maxForce; sy = sy / sm * maxForce; }
+      ax += sx * EVO_ATTRACT; ay += sy * EVO_ATTRACT;
+    }
+    float alR = 50, cohR = s.cohR, sepR = s.sepR;
+    float maxR = max(alR, max(cohR, sepR));
+    float maxR2 = maxR * maxR;
+    float alX = 0, alY = 0, coX = 0, coY = 0, seX = 0, seY = 0;
+    float alN = 0, coN = 0;
+    int seN = 0;
+    int me = kin[i];
+    int cx = cellX(x), cy = cellY(y);
+    for (int gy = max(0, cy - 1); gy <= min(gh - 1, cy + 1); gy++) {
+      for (int gx = max(0, cx - 1); gx <= min(gw - 1, cx + 1); gx++) {
+        for (int j = cellHead[gy * gw + gx]; j >= 0; j = nextInCell[j]) {
+          if (j == i) continue;
+          float ox = px[j] - x, oy = py[j] - y;
+          float d2 = ox * ox + oy * oy;
+          if (d2 >= maxR2) continue;
+          float dd = sqrt(d2);
+          float w = kin[j] == me ? 1 : s.open;
+          if (dd < alR) { alX += vx[j] * w; alY += vy[j] * w; alN += w; }
+          if (dd < cohR) { coX += px[j] * w; coY += py[j] * w; coN += w; }
+          if (dd < sepR && dd > 0) { seX -= ox / d2; seY -= oy / d2; seN++; }
+        }
+      }
+    }
+    if (alN > 0) {
+      float[] sv = steerTo(alX / alN, alY / alN, ux, uy, maxSpeed, maxForce);
+      ax += sv[0] * s.alignW; ay += sv[1] * s.alignW;
+    }
+    if (coN > 0) {
+      float[] sv = steerTo(coX / coN - x, coY / coN - y, ux, uy, maxSpeed, maxForce);
+      ax += sv[0] * s.cohW; ay += sv[1] * s.cohW;
+    }
+    if (seN > 0) {
+      float[] sv = steerTo(seX / seN, seY / seN, ux, uy, maxSpeed, maxForce);
+      ax += sv[0] * s.sepW; ay += sv[1] * s.sepW;
+    }
+    fx[i] = ax; fy[i] = ay;
+  }
+
+  int speciesIndex(Species s) { return species.indexOf(s); }
+
+  int[] speciesCounts() {
+    int[] c = new int[species.size()];
+    for (Boid b : boids) { int k = speciesIndex(b.sp); if (k >= 0) c[k]++; }
+    return c;
+  }
+
+  // 兴衰：兴盛物种的一个个体分裂（出现在它身边），衰退物种的一个个体消失
+  // 物种的选择用 grng（与历史计算相同）；具体是哪个个体、出现在哪里用 rng（回放时相同）
+  void evoTick() {
+    int[] fl = evoChooseFlow(species, speciesCounts(), a, v, grng);
+    if (fl == null) return;
+    Boid victim = randomMember(species.get(fl[1]));
+    Boid parent = randomMember(species.get(fl[0]));
+    if (victim == null || parent == null) return;
+    victim.sp = parent.sp;
+    victim.id = nextId++;
+    victim.position.set(wrapX(parent.position.x + (float)rng.nextGaussian() * 8), wrapY(parent.position.y + (float)rng.nextGaussian() * 8));
+    victim.velocity.set(parent.velocity.x, parent.velocity.y);
+  }
+
+  Boid randomMember(Species s) {
+    int c = 0;
+    for (Boid b : boids) if (b.sp == s) c++;
+    if (c == 0) return null;
+    int k = rng.nextInt(c);
+    for (Boid b : boids) if (b.sp == s && k-- == 0) return b;
+    return null;
+  }
+
+  float wrapX(float x) { return ((x % W) + W) % W; }
+  float wrapY(float y) { return ((y % H) + H) % H; }
+
+  // 会话结束：新物种诞生（转化来的个体聚在一处出现）；必要时灭绝的物种并入最相近的物种
+  void applyPlan(EvoPlan plan) {
+    ArrayList<Species> old = new ArrayList<Species>(species);
+    float cx0 = W * 0.2f + rng.nextFloat() * W * 0.6f, cy0 = H * 0.2f + rng.nextFloat() * H * 0.6f;
+    for (int i = 0; i < plan.take.length; i++) {
+      for (int k = 0; k < plan.take[i]; k++) {
+        Boid b = randomMember(old.get(i));
+        if (b == null) break;
+        b.sp = plan.born;
+        b.id = nextId++;
+        b.position.set(wrapX(cx0 + (float)rng.nextGaussian() * 25), wrapY(cy0 + (float)rng.nextGaussian() * 25));
+      }
+    }
+    if (plan.extinct >= 0) {
+      Species ex = old.get(plan.extinct), to = old.get(plan.extinctTo);
+      for (Boid b : boids) if (b.sp == ex) b.sp = to;
+      species.remove(ex);
+    }
+    species.add(plan.born);
+  }
+
   void adjustPopulation() {
     int desired = constrain(round(map(v, -1, 1, popMin, popMax)), popMin, popMax);
     int current = boids.size();
@@ -152,6 +314,7 @@ class SwarmSim {
 
   // ---- 邻居网格（数组链表，顺序固定）----
   float[] px = new float[0], py, vx, vy, fx, fy;
+  int[] kin = new int[0];
   int[] cellHead, nextInCell;
 
   void ensureBuffers(int n) {
@@ -159,6 +322,7 @@ class SwarmSim {
     int m = max(n, 600);
     px = new float[m]; py = new float[m]; vx = new float[m]; vy = new float[m];
     fx = new float[m]; fy = new float[m];
+    kin = new int[m];
     nextInCell = new int[m];
   }
 
@@ -249,10 +413,18 @@ class SwarmSim {
     o.setString("v", Float.toString(v));
     o.setString("theta", Float.toString(thetaR));
     o.setString("wake", Float.toString(wake));
+    if (evo) {
+      o.setBoolean("evo", true);
+      o.setBoolean("evolving", evolving);
+      JSONArray sa = new JSONArray();
+      for (Species s : species) sa.append(s.encode());
+      o.setJSONArray("species", sa);
+    }
     JSONArray arr = new JSONArray();
     for (Boid b : boids) {
       arr.append(b.id + " " + Float.toString(b.position.x) + " " + Float.toString(b.position.y)
-               + " " + Float.toString(b.velocity.x) + " " + Float.toString(b.velocity.y));
+               + " " + Float.toString(b.velocity.x) + " " + Float.toString(b.velocity.y)
+               + (evo && b.sp != null ? " " + b.sp.id : ""));
     }
     o.setJSONArray("boids", arr);
     return o;
@@ -268,19 +440,36 @@ class SwarmSim {
     v = Float.parseFloat(o.getString("v"));
     thetaR = Float.parseFloat(o.getString("theta"));
     wake = Float.parseFloat(o.getString("wake", "1"));
+    // 物种表（"species"）存在时才是物种式进化的数据；上一版（个体基因版）保存的 evo=true 没有物种表 → 按旧数据处理
+    evo = o.getBoolean("evo", false) && o.hasKey("species");
+    evolving = evo && o.getBoolean("evolving", false);
+    species.clear();
+    HashMap<Integer, Species> byId = new HashMap<Integer, Species>();
+    if (evo) {
+      JSONArray sa = o.getJSONArray("species");
+      for (int i = 0; i < sa.size(); i++) {
+        Species s = evoDecodeSpecies(sa.getString(i));
+        species.add(s);
+        byId.put(s.id, s);
+      }
+    }
     JSONArray arr = o.getJSONArray("boids");
     for (int i = 0; i < arr.size(); i++) {
       String[] e = split(arr.getString(i), ' ');
       Boid b = new Boid(Float.parseFloat(e[1]), Float.parseFloat(e[2]), rng, W, H);
       b.velocity.set(Float.parseFloat(e[3]), Float.parseFloat(e[4]));
       b.id = Integer.parseInt(e[0]);
+      if (evo && e.length == 6) b.sp = byId.get(Integer.parseInt(e[5]));
       boids.add(b);
     }
+    // 进化需要每个个体都属于某个物种；缺少时（旧数据）按原系统处理
+    if (evo) for (Boid b : boids) if (b.sp == null) { evo = false; break; }
   }
 
   // 录制开始：重设随机数种子、步数归零（回放从同一状态、同一随机序列开始）
   void beginRecording(long seed) {
     rng.setSeed(seed);
+    grng.setSeed(evoGeneSeed(seed));
     for (Boid b : boids) b.rng = rng;
     step = 0;
   }

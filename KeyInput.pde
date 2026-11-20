@@ -32,6 +32,12 @@ void keyPressed() {
     return;
   }
 
+  // E：进化面板（EvolutionUI.pde）
+  if (key == 'e' || key == 'E') {
+    evoPanelOpen = !evoPanelOpen;
+    return;
+  }
+
   // Space：开始 / 结束瞑想（录制）
   if (key == ' ') {
     toggleRecording();
